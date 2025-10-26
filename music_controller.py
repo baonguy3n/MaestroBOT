@@ -22,14 +22,16 @@ except Exception:
 
 
 def find_default_mp3():
+    """Finds the first .mp3 file in the script's directory."""
     cwd = Path(__file__).parent
     mp3s = list(cwd.glob('*.mp3'))
     return mp3s[0] if mp3s else None
 
 
-def parse_gesture_from_line(line: str):
-    # Expect lines like: "Hand: Right | Gesture: Open Hand | Motion: Moving Up"
-    m = re.search(r'Gesture:\s*([^|\n]+)', line)
+def parse_action_from_line(line: str):
+    """Parses the action string from a line of tracker output."""
+    # --- MODIFIED: Look for 'Action:' instead of 'Gesture:' ---
+    m = re.search(r'Action:\s*([^|\n]+)', line)
     if m:
         return m.group(1).strip()
     return None
@@ -38,10 +40,10 @@ def parse_gesture_from_line(line: str):
 class MusicControllerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title('MaestroBOT - VLC Music Controller')
+        self.root.title('MaestroBOT - Gesture Music Controller')
 
-        # VLC player
-        self.instance = vlc.Instance()
+        # --- Add audio filter to preserve pitch on rate change ---
+        self.instance = vlc.Instance('--audio-filter=scaletempo')
         self.player = self.instance.media_player_new()
 
         # State
@@ -49,34 +51,40 @@ class MusicControllerGUI:
         self.is_playing = False
         self.is_paused = False
         self.volume = 60  # 0-100
+        self.playback_rate = 1.0 # 1.0 is normal speed
         self.player.audio_set_volume(self.volume)
 
+        # Cooldowns and step values
         self.ACTION_COOLDOWN = 0.4
         self.VOL_STEP = 8
-        self.last_action_time = {'start': 0, 'pause': 0, 'vol': 0}
+        self.RATE_STEP = 0.25 # Speed up/down by 25%
+        self.last_action_time = {'start': 0, 'pause': 0, 'vol': 0, 'rate': 0}
 
-        # GUI elements
+        # --- Updated instructions ---
         instructions = (
             "Gesture Controls:\n"
-            "• Open Hand → Start/Resume playback\n"
+            "• Open Hand → Play/Resume playback\n"
             "• Closed Fist → Pause playback\n"
             "• Pointing Up/Thumbs Up → Raise volume\n"
-            "• Two Fingers → Lower volume"
+            "• Two Fingers → Lower volume\n"
+            "• Three Fingers → Speed up playback\n"
+            "• Four Fingers → Slow down playback"
         )
         self.label_instructions = tk.Label(root, text=instructions, 
-                                         justify=tk.LEFT, 
-                                         font=('Segoe UI', 10),
-                                         relief=tk.GROOVE,
-                                         padx=10, pady=10)
+                                           justify=tk.LEFT, 
+                                           font=('Segoe UI', 10),
+                                           relief=tk.GROOVE,
+                                           padx=10, pady=10)
         self.label_instructions.pack(padx=8, pady=6, fill=tk.X)
 
         self.label_file = tk.Label(root, text='File: (none)', wraplength=400)
         self.label_file.pack(padx=8, pady=6)
 
-        self.label_gesture = tk.Label(root, text='Gesture: (none)', font=('Segoe UI', 14))
-        self.label_gesture.pack(padx=8, pady=6)
+        # --- MODIFIED: Label now shows 'Action' ---
+        self.label_action = tk.Label(root, text='Action: (none)', font=('Segoe UI', 14))
+        self.label_action.pack(padx=8, pady=6)
 
-        self.label_state = tk.Label(root, text='State: stopped | Volume: 60')
+        self.label_state = tk.Label(root, text='State: stopped | Volume: 60 | Rate: 1.00x')
         self.label_state.pack(padx=8, pady=6)
 
         btn_frame = tk.Frame(root)
@@ -103,6 +111,7 @@ class MusicControllerGUI:
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
 
     def load_file(self):
+        """Opens a file dialog to load an MP3 and starts playing it."""
         file = filedialog.askopenfilename(filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
         if not file:
             return
@@ -114,6 +123,7 @@ class MusicControllerGUI:
         self.play_manual()
 
     def play_manual(self):
+        """Manually starts playback, finding a default MP3 if none is loaded."""
         if not self.current_file:
             default = find_default_mp3()
             if default:
@@ -124,34 +134,41 @@ class MusicControllerGUI:
             else:
                 messagebox.showinfo('No MP3', 'No MP3 chosen and none found in project folder.')
                 return
+                
         self.player.play()
+        self.playback_rate = 1.0
+        self.player.set_rate(self.playback_rate)
         self.is_playing = True
         self.is_paused = False
         self._update_state_label()
 
     def pause_manual(self):
+        """Manually pauses playback."""
         if self.is_playing and not self.is_paused:
             self.player.pause()
             self.is_paused = True
             self._update_state_label()
 
     def stop_manual(self):
+        """Manually stops playback and resets rate."""
         self.player.stop()
+        self.playback_rate = 1.0 # Reset rate
         self.is_playing = False
         self.is_paused = False
         self._update_state_label()
 
     def start_hand_tracking_subprocess(self):
-        script_path = Path(__file__).parent / 'hand-tracking.py'
+        """Finds and runs the hand_tracker.py script as a subprocess."""
+        script_path = Path(__file__).parent / 'hand-tracker.py'
         if not script_path.exists():
-            messagebox.showerror('Missing Script', f'hand-tracking.py not found at {script_path}')
+            messagebox.showerror('Missing Script', f'hand-tracker.py not found at {script_path}')
             return
 
         cmd = [sys.executable, '-u', str(script_path)]
         try:
             self.subproc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         except Exception as e:
-            messagebox.showerror('Subprocess error', f'Failed to start hand-tracking.py: {e}')
+            messagebox.showerror('Subprocess error', f'Failed to start hand-tracker.py: {e}')
             return
 
         self.reading = True
@@ -159,7 +176,7 @@ class MusicControllerGUI:
         self.reader_thread.start()
 
     def _reader_loop(self):
-        # Read lines from subprocess and push them to queue
+        """Thread target to read lines from subprocess stdout and put them in a queue."""
         try:
             for raw in self.subproc.stdout:
                 if raw is None:
@@ -168,9 +185,10 @@ class MusicControllerGUI:
                 if line:
                     self.queue.put(line)
         except Exception:
-            pass
+            pass 
 
     def _poll_queue(self):
+        """Periodically checks the queue for new lines from the reader thread."""
         try:
             while not self.queue.empty():
                 line = self.queue.get_nowait()
@@ -181,74 +199,87 @@ class MusicControllerGUI:
             self.root.after(100, self._poll_queue)
 
     def _handle_line(self, line: str):
-        # Update label with raw line for debug
-        # parse gesture
-        gesture = parse_gesture_from_line(line)
-        if gesture:
-            self.label_gesture.config(text=f'Gesture: {gesture}')
+        """Parses a line of output and performs the corresponding media action."""
+        # --- MODIFIED: Use parse_action_from_line ---
+        action = parse_action_from_line(line)
+        if action:
+            self.label_action.config(text=f'Action: {action}')
             now = time.time()
 
-            # Start (Open Hand)
-            if 'Open Hand' in gesture:
+            # --- MODIFIED: Check for action strings ---
+            if 'Play/Resume' in action:
                 if (now - self.last_action_time['start']) > self.ACTION_COOLDOWN:
                     if not self.is_playing or self.is_paused:
                         if self.is_paused:
-                            self.player.play()
+                            self.player.play() # Resumes
                             self.is_paused = False
                             self.is_playing = True
                             print('Unpaused playback (Open Hand)')
                         else:
                             self.player.play()
+                            self.playback_rate = 1.0
+                            self.player.set_rate(self.playback_rate)
                             self.is_playing = True
                             self.is_paused = False
                             print('Started playback (Open Hand)')
-                    self.last_action_time['start'] = now
+                        self.last_action_time['start'] = now
 
-            # Pause (Closed Fist)
-            elif 'Closed Fist' in gesture:
+            elif 'Pause' in action:
                 if (now - self.last_action_time['pause']) > self.ACTION_COOLDOWN:
                     if self.is_playing and not self.is_paused:
                         self.player.pause()
                         self.is_paused = True
                         print('Paused playback (Closed Fist)')
-                    self.last_action_time['pause'] = now
+                        self.last_action_time['pause'] = now
 
-            # Volume up (Pointing Up or Thumbs Up)
-            elif ('Pointing Up' in gesture) or ('Thumbs Up' in gesture):
+            elif 'Volume Up' in action:
                 if (now - self.last_action_time['vol']) > self.ACTION_COOLDOWN:
                     self.volume = min(100, self.volume + self.VOL_STEP)
                     self.player.audio_set_volume(self.volume)
-                    print(f'Volume up -> {self.volume} ({gesture})')
-                    self._update_state_label()
+                    print(f'Volume up -> {self.volume} ({action})')
                     self.last_action_time['vol'] = now
 
-            # Volume down (Two Fingers)
-            elif 'Two Fingers' in gesture:
+            elif 'Volume Down' in action:
                 if (now - self.last_action_time['vol']) > self.ACTION_COOLDOWN:
                     self.volume = max(0, self.volume - self.VOL_STEP)
                     self.player.audio_set_volume(self.volume)
-                    print(f'Volume down -> {self.volume} (Two Fingers)')
-                    self._update_state_label()
+                    print(f'Volume down -> {self.volume} ({action})')
                     self.last_action_time['vol'] = now
+            
+            elif 'Speed Up' in action:
+                if (now - self.last_action_time['rate']) > self.ACTION_COOLDOWN:
+                    self.playback_rate = min(3.0, self.playback_rate + self.RATE_STEP)
+                    self.player.set_rate(self.playback_rate)
+                    print(f'Speed up -> {self.playback_rate:.2f}x ({action})')
+                    self.last_action_time['rate'] = now
+            
+            elif 'Slow Down' in action:
+                if (now - self.last_action_time['rate']) > self.ACTION_COOLDOWN:
+                    self.playback_rate = max(0.25, self.playback_rate - self.RATE_STEP)
+                    self.player.set_rate(self.playback_rate)
+                    print(f'Speed down -> {self.playback_rate:.2f}x ({action})')
+                    self.last_action_time['rate'] = now
 
-            # Update state label after handling
+            # Update state label after any action
             self._update_state_label()
 
     def _update_state_label(self):
+        """Updates the state label with current status, volume, and rate."""
         state = 'playing' if self.is_playing and not self.is_paused else ('paused' if self.is_paused else 'stopped')
-        self.label_state.config(text=f'State: {state} | Volume: {self.volume}')
+        rate_str = f"{self.playback_rate:.2f}x"
+        self.label_state.config(text=f'State: {state} | Volume: {self.volume} | Rate: {rate_str}')
 
     def _on_close(self):
-        # Cleanup
+        """Handles window close event, terminating subprocess and stopping player."""
         try:
             if self.subproc and self.subproc.poll() is None:
-                self.subproc.terminate()
+                self.subproc.terminate() # Kill the hand-tracker.py process
         except Exception:
-            pass
+            pass 
         try:
             self.player.stop()
         except Exception:
-            pass
+            pass 
         self.root.destroy()
 
 
@@ -260,3 +291,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
