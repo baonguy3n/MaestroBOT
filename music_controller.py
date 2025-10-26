@@ -27,14 +27,11 @@ def find_default_mp3():
     mp3s = [f for f in os.listdir(script_dir) if f.endswith('.mp3')]
     return os.path.join(script_dir, mp3s[0]) if mp3s else None
 
-<<<<<<< HEAD
 def find_default_wav():
     """Finds the first .wav file in the script's directory."""
     cwd = Path(__file__).parent
     wavs = list(cwd.glob('*.wav'))
     return wavs[0] if wavs else None
-=======
->>>>>>> 1f00e3c2a8b76b060191695ffc6f926b753f786e
 
 # regex to grab the action string
 def parse_action_from_line(line: str):
@@ -187,14 +184,8 @@ class MusicControllerGUI:
                 self.label_action.config(text='Action: (waiting)')
 
     def load_file(self):
-<<<<<<< HEAD
         """Opens a file dialog to load an MP3 and starts playing it."""
         file = filedialog.askopenfilename(filetypes=[('MP3 files', '*.mp3'), ('WAV files', '*.wav'), ('All files', '*.*')])
-
-=======
-        # Opens a file dialog to load an MP3
-        file = filedialog.askopenfilename(filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
->>>>>>> 1f00e3c2a8b76b060191695ffc6f926b753f786e
         if not file: return
         self.current_file = file
         self.label_file.config(text=f'File: {os.path.basename(file)}')
