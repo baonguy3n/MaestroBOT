@@ -20,7 +20,9 @@ We have 6 gestures encoding 6 instructions to the vlc-player.
 - Three Fingers: Increase playback speed
 - Four Fingers: Decrease playback speed
 
-An MP3 file can be selected via the vlc-popout.
+The gestures will also each change the stereo image from left to right.
+
+An MP3 or WAV file can be selected via the vlc-popout.
 
 Important libraries:
 - mediapipe (hand tracking)
