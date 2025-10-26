@@ -3,12 +3,21 @@ import sys
 import subprocess
 import time
 import re
+import threading
+import queue
 from pathlib import Path
 
 try:
-    import pygame
+    import vlc
 except Exception:
-    print("Module 'pygame' is required. Install with: pip install pygame")
+    print("Module 'python-vlc' is required. Install with: pip install python-vlc")
+    raise
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+except Exception:
+    print("Tkinter not available - it's required for the GUI (usually included with standard Python).")
     raise
 
 
@@ -26,130 +35,227 @@ def parse_gesture_from_line(line: str):
     return None
 
 
-def clamp(v, lo=0.0, hi=1.0):
-    return max(lo, min(hi, v))
+class MusicControllerGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title('MaestroBOT - VLC Music Controller')
 
+        # VLC player
+        self.instance = vlc.Instance()
+        self.player = self.instance.media_player_new()
 
-def main():
-    # Parse command-line arg for mp3
-    import argparse
-    p = argparse.ArgumentParser(description='Music controller using hand-tracking.py outputs')
-    p.add_argument('--file', '-f', help='Path to mp3 file to play')
-    args = p.parse_args()
+        # State
+        self.current_file = None
+        self.is_playing = False
+        self.is_paused = False
+        self.volume = 60  # 0-100
+        self.player.audio_set_volume(self.volume)
 
-    mp3_path = None
-    if args.file:
-        mp3_path = Path(args.file)
-        if not mp3_path.exists():
-            print(f"MP3 file not found: {mp3_path}")
+        self.ACTION_COOLDOWN = 0.4
+        self.VOL_STEP = 8
+        self.last_action_time = {'start': 0, 'pause': 0, 'vol': 0}
+
+        # GUI elements
+        instructions = (
+            "Gesture Controls:\n"
+            "• Open Hand → Start/Resume playback\n"
+            "• Closed Fist → Pause playback\n"
+            "• Pointing Up/Thumbs Up → Raise volume\n"
+            "• Two Fingers → Lower volume"
+        )
+        self.label_instructions = tk.Label(root, text=instructions, 
+                                         justify=tk.LEFT, 
+                                         font=('Segoe UI', 10),
+                                         relief=tk.GROOVE,
+                                         padx=10, pady=10)
+        self.label_instructions.pack(padx=8, pady=6, fill=tk.X)
+
+        self.label_file = tk.Label(root, text='File: (none)', wraplength=400)
+        self.label_file.pack(padx=8, pady=6)
+
+        self.label_gesture = tk.Label(root, text='Gesture: (none)', font=('Segoe UI', 14))
+        self.label_gesture.pack(padx=8, pady=6)
+
+        self.label_state = tk.Label(root, text='State: stopped | Volume: 60')
+        self.label_state.pack(padx=8, pady=6)
+
+        btn_frame = tk.Frame(root)
+        btn_frame.pack(padx=8, pady=6)
+
+        tk.Button(btn_frame, text='Load MP3', command=self.load_file).grid(row=0, column=0, padx=4)
+        tk.Button(btn_frame, text='Play', command=self.play_manual).grid(row=0, column=1, padx=4)
+        tk.Button(btn_frame, text='Pause', command=self.pause_manual).grid(row=0, column=2, padx=4)
+        tk.Button(btn_frame, text='Stop', command=self.stop_manual).grid(row=0, column=3, padx=4)
+
+        # Threading: queue for lines from hand-tracking
+        self.queue = queue.Queue()
+        self.subproc = None
+        self.reader_thread = None
+        self.reading = False
+
+        # Start hand-tracking subprocess automatically
+        self.start_hand_tracking_subprocess()
+
+        # Poll queue periodically
+        self.root.after(100, self._poll_queue)
+
+        # Handle closing
+        self.root.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    def load_file(self):
+        file = filedialog.askopenfilename(filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
+        if not file:
             return
-    else:
-        mp3_path = find_default_mp3()
-        if mp3_path is None:
-            print("No mp3 passed and none found in project folder. Provide one with --file <path>")
+        self.current_file = file
+        self.label_file.config(text=f'File: {file}')
+        media = self.instance.media_new(str(file))
+        self.player.set_media(media)
+        # Auto play when file loaded
+        self.play_manual()
+
+    def play_manual(self):
+        if not self.current_file:
+            default = find_default_mp3()
+            if default:
+                self.current_file = str(default)
+                media = self.instance.media_new(self.current_file)
+                self.player.set_media(media)
+                self.label_file.config(text=f'File: {self.current_file}')
+            else:
+                messagebox.showinfo('No MP3', 'No MP3 chosen and none found in project folder.')
+                return
+        self.player.play()
+        self.is_playing = True
+        self.is_paused = False
+        self._update_state_label()
+
+    def pause_manual(self):
+        if self.is_playing and not self.is_paused:
+            self.player.pause()
+            self.is_paused = True
+            self._update_state_label()
+
+    def stop_manual(self):
+        self.player.stop()
+        self.is_playing = False
+        self.is_paused = False
+        self._update_state_label()
+
+    def start_hand_tracking_subprocess(self):
+        script_path = Path(__file__).parent / 'hand-tracking.py'
+        if not script_path.exists():
+            messagebox.showerror('Missing Script', f'hand-tracking.py not found at {script_path}')
             return
 
-    mp3_path = str(mp3_path)
-    print(f"Using MP3: {mp3_path}")
+        cmd = [sys.executable, '-u', str(script_path)]
+        try:
+            self.subproc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        except Exception as e:
+            messagebox.showerror('Subprocess error', f'Failed to start hand-tracking.py: {e}')
+            return
 
-    # Initialize pygame mixer
-    pygame.mixer.init()
-    pygame.mixer.music.load(mp3_path)
-    volume = 0.6
-    pygame.mixer.music.set_volume(volume)
+        self.reading = True
+        self.reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self.reader_thread.start()
 
-    # Playback state bookkeeping
-    is_playing = False
-    is_paused = False
+    def _reader_loop(self):
+        # Read lines from subprocess and push them to queue
+        try:
+            for raw in self.subproc.stdout:
+                if raw is None:
+                    break
+                line = raw.strip()
+                if line:
+                    self.queue.put(line)
+        except Exception:
+            pass
 
-    # cooldowns to avoid repeated rapid actions
-    last_action_time = {
-        'start': 0,
-        'pause': 0,
-        'vol': 0
-    }
-    ACTION_COOLDOWN = 0.4  # seconds
-    VOL_STEP = 0.08
+    def _poll_queue(self):
+        try:
+            while not self.queue.empty():
+                line = self.queue.get_nowait()
+                self._handle_line(line)
+        except queue.Empty:
+            pass
+        finally:
+            self.root.after(100, self._poll_queue)
 
-    # Launch hand-tracking.py as subprocess and read its stdout
-    script_path = Path(__file__).parent / 'hand-tracking.py'
-    if not script_path.exists():
-        print(f"hand-tracking.py not found at {script_path}")
-        return
-
-    # Use unbuffered mode to try to get live output
-    cmd = [sys.executable, '-u', str(script_path)]
-    print('Starting hand-tracking subprocess...')
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-
-    try:
-        # Read lines from hand-tracking script
-        for raw in proc.stdout:
-            line = raw.strip()
-            if not line:
-                continue
-            # Echo the raw line for debugging (optional)
-            # print(f"[HAND] {line}")
-
-            gesture = parse_gesture_from_line(line)
-            if not gesture:
-                continue
-
+    def _handle_line(self, line: str):
+        # Update label with raw line for debug
+        # parse gesture
+        gesture = parse_gesture_from_line(line)
+        if gesture:
+            self.label_gesture.config(text=f'Gesture: {gesture}')
             now = time.time()
 
             # Start (Open Hand)
             if 'Open Hand' in gesture:
-                if (now - last_action_time['start']) > ACTION_COOLDOWN:
-                    if not is_playing or is_paused:
-                        # If paused, unpause; else start from beginning
-                        if is_paused:
-                            pygame.mixer.music.unpause()
-                            is_paused = False
-                            is_playing = True
+                if (now - self.last_action_time['start']) > self.ACTION_COOLDOWN:
+                    if not self.is_playing or self.is_paused:
+                        if self.is_paused:
+                            self.player.play()
+                            self.is_paused = False
+                            self.is_playing = True
                             print('Unpaused playback (Open Hand)')
                         else:
-                            pygame.mixer.music.play()
-                            is_playing = True
-                            is_paused = False
+                            self.player.play()
+                            self.is_playing = True
+                            self.is_paused = False
                             print('Started playback (Open Hand)')
-                    last_action_time['start'] = now
+                    self.last_action_time['start'] = now
 
             # Pause (Closed Fist)
             elif 'Closed Fist' in gesture:
-                if (now - last_action_time['pause']) > ACTION_COOLDOWN:
-                    if is_playing and not is_paused:
-                        pygame.mixer.music.pause()
-                        is_paused = True
+                if (now - self.last_action_time['pause']) > self.ACTION_COOLDOWN:
+                    if self.is_playing and not self.is_paused:
+                        self.player.pause()
+                        self.is_paused = True
                         print('Paused playback (Closed Fist)')
-                    last_action_time['pause'] = now
+                    self.last_action_time['pause'] = now
 
             # Volume up (Pointing Up or Thumbs Up)
             elif ('Pointing Up' in gesture) or ('Thumbs Up' in gesture):
-                if (now - last_action_time['vol']) > ACTION_COOLDOWN:
-                    volume = clamp(volume + VOL_STEP)
-                    pygame.mixer.music.set_volume(volume)
-                    print(f'Volume up -> {volume:.2f} ({gesture})')
-                    last_action_time['vol'] = now
+                if (now - self.last_action_time['vol']) > self.ACTION_COOLDOWN:
+                    self.volume = min(100, self.volume + self.VOL_STEP)
+                    self.player.audio_set_volume(self.volume)
+                    print(f'Volume up -> {self.volume} ({gesture})')
+                    self._update_state_label()
+                    self.last_action_time['vol'] = now
 
             # Volume down (Two Fingers)
             elif 'Two Fingers' in gesture:
-                if (now - last_action_time['vol']) > ACTION_COOLDOWN:
-                    volume = clamp(volume - VOL_STEP)
-                    pygame.mixer.music.set_volume(volume)
-                    print(f'Volume down -> {volume:.2f} (Two Fingers)')
-                    last_action_time['vol'] = now
+                if (now - self.last_action_time['vol']) > self.ACTION_COOLDOWN:
+                    self.volume = max(0, self.volume - self.VOL_STEP)
+                    self.player.audio_set_volume(self.volume)
+                    print(f'Volume down -> {self.volume} (Two Fingers)')
+                    self._update_state_label()
+                    self.last_action_time['vol'] = now
 
-            # Optionally, you can print or handle other gestures here
+            # Update state label after handling
+            self._update_state_label()
 
-    except KeyboardInterrupt:
-        print('Interrupted by user, shutting down...')
-    finally:
+    def _update_state_label(self):
+        state = 'playing' if self.is_playing and not self.is_paused else ('paused' if self.is_paused else 'stopped')
+        self.label_state.config(text=f'State: {state} | Volume: {self.volume}')
+
+    def _on_close(self):
+        # Cleanup
         try:
-            proc.terminate()
+            if self.subproc and self.subproc.poll() is None:
+                self.subproc.terminate()
         except Exception:
             pass
-        pygame.mixer.music.stop()
-        pygame.mixer.quit()
+        try:
+            self.player.stop()
+        except Exception:
+            pass
+        self.root.destroy()
+
+
+def main():
+    root = tk.Tk()
+    app = MusicControllerGUI(root)
+    root.mainloop()
 
 
 if __name__ == '__main__':

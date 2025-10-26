@@ -4,7 +4,7 @@ A small project that uses MediaPipe hand-tracking to control music playback with
 
 This repository currently contains:
 - `hand-tracking.py` — captures webcam video, recognizes hand gestures, and prints gesture info to stdout.
-- `music_controller.py` — launches `hand-tracking.py`, parses its printed gestures, and controls an MP3 using pygame.mixer.
+- `music_controller.py` — launches `hand-tracking.py`, parses its printed gestures, and controls an MP3 using python-vlc; it also provides a small Tkinter GUI.
 - `requirements.txt` — dependencies to install (see notes below).
 
 ## Overview
@@ -27,7 +27,9 @@ The controller script (`music_controller.py`) runs `hand-tracking.py` as a subpr
 Important libraries:
 - mediapipe (hand tracking)
 - opencv-python (video capture / display)
-- pygame (audio playback)
+- python-vlc (VLC bindings for audio playback)
+
+Additional requirement: the VLC application must be installed on your system (https://www.videolan.org/vlc/). The `python-vlc` package is a binding that talks to the VLC runtime.
 
 Note: MediaPipe on Windows may require a compatible protobuf wheel and a supported Python version. If you run into installation errors, see the Troubleshooting section below.
 
@@ -50,17 +52,13 @@ If you prefer not to use a virtual environment, install the dependencies globall
 
 Place the MP3 you want to control in the repository folder. The controller will pick the first `*.mp3` in the folder if you don't pass `--file`.
 
-You can also pass an MP3 explicitly:
-
-```powershell
-python .\music_controller.py --file .\your_song.mp3
-```
-
-Or simply let it pick a file automatically:
+Run the GUI controller and then load an MP3 from the GUI (or place an MP3 in the project folder and the controller will use the first one it finds):
 
 ```powershell
 python .\music_controller.py
 ```
+
+After the GUI opens use the "Load MP3" button or let it auto-detect a file in the project folder.
 
 ## Running the system
 
@@ -87,7 +85,7 @@ While running, use the gestures above in front of your webcam. The controller pr
 
 ## Troubleshooting
 
-- If `pygame` reports audio backend issues, ensure your system audio is working and try installing `pygame` via `pip` again. On Windows, using the official Python installer and matching bitness (x64) often avoids issues.
+- If audio doesn't play or python-vlc can't find a VLC runtime, ensure the VLC application is installed and accessible. On Windows, install VLC from https://www.videolan.org/vlc/ and try `pip install python-vlc` inside your virtual environment. Also ensure your Python bitness (32/64-bit) matches the installed VLC build.
 - If `mediapipe` installation fails, install the wheel directly matching your Python version and platform, or try upgrading `pip` first:
 
 ```powershell
