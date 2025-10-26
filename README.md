@@ -29,6 +29,6 @@ Important libraries:
 - opencv-python (video capture / display)
 - python-vlc (VLC bindings for audio playback)
 
-## Prepare an MP3
+## Prepare an MP3 or WAVfile
 
-Run the GUI controller and then load an MP3 from the GUI (or place an MP3 in the project folder and the controller will use the first one it finds):
+Run the GUI controller and then load an MP3 or WAV file from the GUI (or place an MP3 or WAV file in the project folder and the controller will use the first one it finds):
