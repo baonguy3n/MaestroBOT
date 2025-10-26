@@ -1,6 +1,8 @@
 # MaestroBOT
 
-A small project that uses MediaPipe hand-tracking to control music playback with gestures.
+REQUIRED INSTALLATION:
+# py -m pip install opencv-python mediapipe
+# py -m pip install python-vlc
 
 This repository currently contains:
 - `hand-tracking.py` — captures webcam video, recognizes hand gestures, and prints gesture info to stdout.
