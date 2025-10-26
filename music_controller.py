@@ -27,6 +27,14 @@ def find_default_mp3():
     mp3s = [f for f in os.listdir(script_dir) if f.endswith('.mp3')]
     return os.path.join(script_dir, mp3s[0]) if mp3s else None
 
+<<<<<<< HEAD
+def find_default_wav():
+    """Finds the first .wav file in the script's directory."""
+    cwd = Path(__file__).parent
+    wavs = list(cwd.glob('*.wav'))
+    return wavs[0] if wavs else None
+=======
+>>>>>>> 1f00e3c2a8b76b060191695ffc6f926b753f786e
 
 # regex to grab the action string
 def parse_action_from_line(line: str):
@@ -73,6 +81,7 @@ class MusicControllerGUI:
         self.volume = 60
         self.playback_rate = 1.0
         self.player.audio_set_volume(self.volume)
+        self.player.audio_set_channel(vlc.AudioOutputChannel.left)
 
         # Magic numbers
         self.ACTION_COOLDOWN = 0.4 # stop spamming
@@ -178,8 +187,14 @@ class MusicControllerGUI:
                 self.label_action.config(text='Action: (waiting)')
 
     def load_file(self):
+<<<<<<< HEAD
+        """Opens a file dialog to load an MP3 and starts playing it."""
+        file = filedialog.askopenfilename(filetypes=[('MP3 files', '*.mp3'), ('WAV files', '*.wav'), ('All files', '*.*')])
+
+=======
         # Opens a file dialog to load an MP3
         file = filedialog.askopenfilename(filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
+>>>>>>> 1f00e3c2a8b76b060191695ffc6f926b753f786e
         if not file: return
         self.current_file = file
         self.label_file.config(text=f'File: {os.path.basename(file)}')
@@ -190,14 +205,15 @@ class MusicControllerGUI:
     def play_manual(self):
         # Manually starts playback, finds a default MP3 if none is loaded
         if not self.current_file:
-            default = find_default_mp3()
-            if default:
-                self.current_file = str(default)
+            default_mp3 = find_default_mp3()
+            default_wav = find_default_wav()
+            if default_mp3 or default_wav:
+                self.current_file = str(default_mp3 or default_wav)
                 media = self.instance.media_new(self.current_file)
                 self.player.set_media(media)
                 self.label_file.config(text=f'File: {os.path.basename(self.current_file)}')
             else:
-                messagebox.showinfo('No MP3', 'No MP3 chosen and none found in project folder.')
+                messagebox.showinfo('No MP3 or WAV', 'No MP3 or WAV chosen and none found in project folder.')
                 return
                 
         self.player.play()
@@ -343,6 +359,7 @@ class MusicControllerGUI:
                     self.player.audio_set_volume(self.volume)
                     print(f'Volume up -> {self.volume}')
                     self.last_action_time['vol'] = now
+                    self.player.audio_set_channel(vlc.AudioOutputChannel.right)
 
             elif 'Volume Down' in action:
                 if (now - self.last_action_time['vol']) > self.ACTION_COOLDOWN:
@@ -350,6 +367,7 @@ class MusicControllerGUI:
                     self.player.audio_set_volume(self.volume)
                     print(f'Volume down -> {self.volume}')
                     self.last_action_time['vol'] = now
+                    self.player.audio_set_channel(vlc.AudioOutputChannel.left)
             
             elif 'Speed Up' in action:
                 if (now - self.last_action_time['rate']) > self.ACTION_COOLDOWN:
@@ -357,6 +375,7 @@ class MusicControllerGUI:
                     self.player.set_rate(self.playback_rate)
                     print(f'Speed up -> {self.playback_rate:.2f}x')
                     self.last_action_time['rate'] = now
+                    self.player.audio_set_channel(vlc.AudioOutputChannel.left)
             
             elif 'Slow Down' in action:
                 if (now - self.last_action_time['rate']) > self.ACTION_COOLDOWN:
@@ -364,10 +383,12 @@ class MusicControllerGUI:
                     self.player.set_rate(self.playback_rate)
                     print(f'Speed down -> {self.playback_rate:.2f}x')
                     self.last_action_time['rate'] = now
+                    self.player.audio_set_channel(vlc.AudioOutputChannel.right)
             
             self._update_state_label()
         elif "No hands detected" in line:
             self.label_action.config(text='Action: (no hands)')
+            
 
 
     def _update_state_label(self):
