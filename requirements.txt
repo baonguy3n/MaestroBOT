@@ -1,0 +1,13 @@
+# MaestroBOT Python dependencies
+# Recommended Python: 3.8 - 3.11
+
+# Core CV / hand-tracking
+opencv-python>=4.7.0
+mediapipe>=0.10.0
+
+# VLC Python bindings (requires VLC application installed)
+python-vlc>=3.0.18121
+
+# Optional: common helper libs (uncomment if you use them)
+# numpy>=1.25.0
+# pillow>=10.0.0
