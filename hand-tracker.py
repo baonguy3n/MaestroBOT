@@ -3,6 +3,7 @@ import cv2
 import mediapipe as mp
 import math
 import time
+import sys # Import sys for explicit flushing
 
 # Used to convert protobuf message to a dictionary.
 from google.protobuf.json_format import MessageToDict
@@ -35,8 +36,6 @@ cap = cv2.VideoCapture(0)
 # Track the last combined output line
 last_output_line = ""
 # -----------------------------------------------
-
-print("DEBUG (hand-tracker): Starting capture loop...") # DEBUG
 
 while True:
     current_time = time.time()
@@ -95,69 +94,53 @@ while True:
                 display_gesture = gesture_str
                 last_change_time = current_time
 
-            # Store data for the detected hand
             detected_hands[label] = {'gesture': display_gesture, 'x': cx, 'y': cy}
-
-            # Store minimal data needed for next frame's debounce check
-            current_frame_data[label] = {
-                'last_display_gesture': display_gesture,
-                'last_change_time': last_change_time
-            }
+            current_frame_data[label] = { 'last_display_gesture': display_gesture, 'last_change_time': last_change_time }
 
             draw_color = (0, 255, 0)
             cv2.putText(img, f"{label}: {display_gesture}", (cx - 70, cy - 30),
                         cv2.FONT_HERSHEY_DUPLEX, 0.7, draw_color, 2, cv2.LINE_AA)
 
-    # --- Aggregation and Printing (Corrected) ---
+    # --- Aggregation and Printing ---
     output_parts = []
     left_data = detected_hands.get('Left')
     right_data = detected_hands.get('Right')
     has_any_hand = left_data or right_data
 
-    # Append Left Hand Data (Gesture mandatory, Coords optional)
     if left_data:
         output_parts.append(f"L_Gesture:{left_data['gesture']}")
         output_parts.append(f"L_X:{left_data['x']}")
         output_parts.append(f"L_Y:{left_data['y']}")
-    else:
-        output_parts.append("L_Gesture:No Hand")
-        # DO NOT append coordinates if no hand
+    else: output_parts.append("L_Gesture:No Hand")
 
-    # Append Right Hand Data (Gesture mandatory, Coords optional)
     if right_data:
         output_parts.append(f"R_Gesture:{right_data['gesture']}")
         output_parts.append(f"R_X:{right_data['x']}")
         output_parts.append(f"R_Y:{right_data['y']}")
-    else:
-        output_parts.append("R_Gesture:No Hand")
-        # DO NOT append coordinates if no hand
+    else: output_parts.append("R_Gesture:No Hand")
 
     output_line = "|".join(output_parts)
 
-    # Determine if the current state is effectively "no hands"
     is_no_hands_now = not has_any_hand
-    was_no_hands_before = "No hands detected." in last_output_line or not last_output_line # Check empty too
+    was_no_hands_before = "No hands detected." in last_output_line or not last_output_line
 
-    # Only print if state changed significantly
-    if output_line != last_output_line:
-        if is_no_hands_now:
-            if not was_no_hands_before: # Only print "No hands" once
-                final_output = "No hands detected."
-                print(f"DEBUG (hand-tracker): SENDING: {final_output}") # DEBUG
-                print(final_output, flush=True)
-                last_output_line = final_output
-        else: # At least one hand is present
-             print(f"DEBUG (hand-tracker): SENDING: {output_line}") # DEBUG
-             print(output_line, flush=True)
-             last_output_line = output_line
+    final_output = None
+    if is_no_hands_now:
+        if not was_no_hands_before:
+            final_output = "No hands detected."
+    elif output_line != last_output_line:
+        final_output = output_line
 
-    prev_hand_data = current_frame_data # Update debounce history
+    if final_output:
+        sys.stdout.write(final_output + '\n')
+        sys.stdout.flush()
+        last_output_line = final_output
+
+    prev_hand_data = current_frame_data
 
     cv2.imshow('Hand Gesture Recognition', img)
     if cv2.waitKey(1) & 0xff == ord('q'):
         break
 
-print("DEBUG (hand-tracker): Exiting capture loop.") # DEBUG
 cap.release()
 cv2.destroyAllWindows()
-print("DEBUG (hand-tracker): Cleanup complete.") # DEBUG
