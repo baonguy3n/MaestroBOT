@@ -27,18 +27,8 @@ def find_default_mp3():
     mp3s = [f for f in os.listdir(script_dir) if f.endswith('.mp3')]
     return os.path.join(script_dir, mp3s[0]) if mp3s else None
 
-def find_default_wav():
-    """Finds the first .wav file in the script's directory."""
-    cwd = Path(__file__).parent
-    wavs = list(cwd.glob('*.wav'))
-    return wavs[0] if wavs else None
 
-# regex to grab the action string
-def parse_action_from_line(line: str):
-    m = re.search(r'Action:\s*([^|\n]+)', line)
-    if m:
-        return m.group(1).strip()
-    return None
+# OLD regex function is no longer needed
 
 
 class MusicControllerGUI:
@@ -46,7 +36,7 @@ class MusicControllerGUI:
         self.root = root
         self.root.title('MaestroBOT')
         self.root.geometry("480x600") 
-        self.root.configure(bg='#f0f0f0') 
+        self.root.configure(bg='#2E2E2E') # Dark background
 
         # --- Style Config ---
         self.style = ttk.Style(self.root)
@@ -57,14 +47,32 @@ class MusicControllerGUI:
         self.font_action = font.Font(family='Segoe UI', size=16, weight='bold')
         self.font_state = font.Font(family='Segoe UI', size=14, weight='bold')
 
+        # --- Define Colors ---
+        BG_COLOR = '#2E2E2E'
+        FRAME_COLOR = '#3A3A3A'
+        TEXT_COLOR = '#E0E0E0'
+        BTN_COLOR = '#5C5C5C'
+        BTN_TEXT = '#FFFFFF'
+        BTN_ACTIVE = '#6F6F6F'
+        INSTR_BG = '#454545'
+        
+        PLAY_COLOR = '#40FF40'  # Bright Green
+        PAUSE_COLOR = '#FFB833' # Bright Orange
+        STOP_COLOR = '#FF4040'   # Bright Red
+
         # Style widgets
-        self.style.configure('TFrame', background='#f0f0f0')
-        self.style.configure('TLabel', background='#f0f0f0', font=self.font_normal)
-        self.style.configure('TButton', font=self.font_bold, padding=(10, 5))
-        self.style.configure('Instructions.TLabel', background='#ffffff', relief='solid', borderwidth=1, padding=(10, 10))
-        self.style.configure('Playing.TLabel', background='#f0f0f0', font=self.font_state, foreground='green')
-        self.style.configure('Paused.TLabel', background='#f0f0f0', font=self.font_state, foreground='#FF8C00') # Dark Orange
-        self.style.configure('Stopped.TLabel', background='#f0f0f0', font=self.font_state, foreground='red')
+        self.style.configure('TFrame', background=FRAME_COLOR)
+        self.style.configure('TLabel', background=FRAME_COLOR, foreground=TEXT_COLOR, font=self.font_normal)
+        self.style.configure('TButton', font=self.font_bold, padding=(10, 5), 
+                             background=BTN_COLOR, foreground=BTN_TEXT)
+        self.style.map('TButton', background=[('active', BTN_ACTIVE)])
+        
+        self.style.configure('Instructions.TLabel', background=INSTR_BG, foreground=TEXT_COLOR, 
+                             relief='solid', borderwidth=1, padding=(10, 10))
+        
+        self.style.configure('Playing.TLabel', background=FRAME_COLOR, font=self.font_state, foreground=PLAY_COLOR)
+        self.style.configure('Paused.TLabel', background=FRAME_COLOR, font=self.font_state, foreground=PAUSE_COLOR)
+        self.style.configure('Stopped.TLabel', background=FRAME_COLOR, font=self.font_state, foreground=STOP_COLOR)
 
         # --- VLC player ---
         self.instance = vlc.Instance('--audio-filter=scaletempo') # scaletempo is magic
@@ -78,23 +86,25 @@ class MusicControllerGUI:
         self.volume = 60
         self.playback_rate = 1.0
         self.player.audio_set_volume(self.volume)
-        self.player.audio_set_channel(vlc.AudioOutputChannel.left)
 
-        # Magic numbers
-        self.ACTION_COOLDOWN = 0.4 # stop spamming
-        self.VOL_STEP = 8
-        self.RATE_STEP = 0.5
-        self.last_action_time = {'start': 0, 'pause': 0, 'vol': 0, 'rate': 0}
 
-        # --- Instructions ---
+        # --- Instructions (UPDATED) ---
         instructions = (
-            "Gesture Controls:\n"
-            "• Open Hand → Play/Resume\n"
-            "• Closed Fist → Pause\n"
-            "• Pointing Up/Thumbs Up → Vol Up\n"
-            "• Two Fingers → Vol Down\n"
-            "• Three Fingers → Speed up\n"
-            "• Four Fingers → Slow down"
+            "Two-Hand Gesture Controls:\n"
+            "• Both Hands Open → Play/Resume\n"
+            "• Both Hands Closed → Stop\n"
+            "\n"
+            "Left Hand (Volume):\n"
+            "• One Finger → 25%\n"
+            "• Two Fingers → 50%\n"
+            "• Three Fingers → 75%\n"
+            "• Four Fingers → 100%\n"
+            "\n"
+            "Right Hand (Speed):\n"
+            "• One Finger → 0.50x\n"
+            "• Two Fingers → 0.75x\n"
+            "• Three Fingers → 1.00x\n"
+            "• Four Fingers → 1.50x"
         )
         instr_frame = ttk.Frame(root, padding=(10, 10))
         instr_frame.pack(fill='x')
@@ -175,6 +185,7 @@ class MusicControllerGUI:
             self.camera_on = False
             self.btn_camera_toggle.config(text='Turn Camera ON')
             self.label_action.config(text='Action: Camera OFF')
+            self.style.map('TButton', background=[('active', BTN_ACTIVE)]) # Re-apply default map
         else:
             # Turn it ON
             self.start_hand_tracking_subprocess()
@@ -184,8 +195,8 @@ class MusicControllerGUI:
                 self.label_action.config(text='Action: (waiting)')
 
     def load_file(self):
-        """Opens a file dialog to load an MP3 and starts playing it."""
-        file = filedialog.askopenfilename(filetypes=[('MP3 files', '*.mp3'), ('WAV files', '*.wav'), ('All files', '*.*')])
+        # Opens a file dialog to load an MP3
+        file = filedialog.askopenfilename(filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
         if not file: return
         self.current_file = file
         self.label_file.config(text=f'File: {os.path.basename(file)}')
@@ -196,19 +207,18 @@ class MusicControllerGUI:
     def play_manual(self):
         # Manually starts playback, finds a default MP3 if none is loaded
         if not self.current_file:
-            default_mp3 = find_default_mp3()
-            default_wav = find_default_wav()
-            if default_mp3 or default_wav:
-                self.current_file = str(default_mp3 or default_wav)
+            default = find_default_mp3()
+            if default:
+                self.current_file = str(default)
                 media = self.instance.media_new(self.current_file)
                 self.player.set_media(media)
                 self.label_file.config(text=f'File: {os.path.basename(self.current_file)}')
             else:
-                messagebox.showinfo('No MP3 or WAV', 'No MP3 or WAV chosen and none found in project folder.')
+                messagebox.showinfo('No MP3', 'No MP3 chosen and none found in project folder.')
                 return
                 
         self.player.play()
-        self.playback_rate = 1.0
+        self.playback_rate = 1.0 # Manual play resets rate
         self.player.set_rate(self.playback_rate)
         self.is_playing = True
         self.is_paused = False
@@ -310,76 +320,93 @@ class MusicControllerGUI:
             self.root.after(100, self._poll_queue) # loop!
 
     def _handle_line(self, line: str):
-        # Parses a line and performs the action
+        # --- NEW LOGIC for Two-Handed Gestures ---
         if not self.camera_on: # Don't process gestures if camera is off
             return
-            
-        action = parse_action_from_line(line)
-        if action:
-            self.label_action.config(text=f'Action: {action}')
-            now = time.time()
-
-            if 'Play/Resume' in action:
-                if (now - self.last_action_time['start']) > self.ACTION_COOLDOWN:
-                    if not self.is_playing or self.is_paused:
-                        if self.is_paused:
-                            self.player.play()
-                            self.is_paused = False
-                            self.is_playing = True
-                            print('Unpaused (Open Hand)')
-                        else:
-                            self.player.play()
-                            self.playback_rate = 1.0 # reset rate
-                            self.player.set_rate(self.playback_rate)
-                            self.is_playing = True
-                            self.is_paused = False
-                            print('Started playback (Open Hand)')
-                        self.last_action_time['start'] = now
-
-            elif 'Pause' in action:
-                if (now - self.last_action_time['pause']) > self.ACTION_COOLDOWN:
-                    if self.is_playing and not self.is_paused:
-                        self.player.pause()
-                        self.is_paused = True
-                        print('Paused (Closed Fist)')
-                        self.last_action_time['pause'] = now
-
-            elif 'Volume Up' in action:
-                if (now - self.last_action_time['vol']) > self.ACTION_COOLDOWN:
-                    self.volume = min(100, self.volume + self.VOL_STEP)
-                    self.player.audio_set_volume(self.volume)
-                    print(f'Volume up -> {self.volume}')
-                    self.last_action_time['vol'] = now
-                    self.player.audio_set_channel(vlc.AudioOutputChannel.right)
-
-            elif 'Volume Down' in action:
-                if (now - self.last_action_time['vol']) > self.ACTION_COOLDOWN:
-                    self.volume = max(0, self.volume - self.VOL_STEP)
-                    self.player.audio_set_volume(self.volume)
-                    print(f'Volume down -> {self.volume}')
-                    self.last_action_time['vol'] = now
-                    self.player.audio_set_channel(vlc.AudioOutputChannel.left)
-            
-            elif 'Speed Up' in action:
-                if (now - self.last_action_time['rate']) > self.ACTION_COOLDOWN:
-                    self.playback_rate = min(3.0, self.playback_rate + self.RATE_STEP)
-                    self.player.set_rate(self.playback_rate)
-                    print(f'Speed up -> {self.playback_rate:.2f}x')
-                    self.last_action_time['rate'] = now
-                    self.player.audio_set_channel(vlc.AudioOutputChannel.left)
-            
-            elif 'Slow Down' in action:
-                if (now - self.last_action_time['rate']) > self.ACTION_COOLDOWN:
-                    self.playback_rate = max(0.25, self.playback_rate - self.RATE_STEP)
-                    self.player.set_rate(self.playback_rate)
-                    print(f'Speed down -> {self.playback_rate:.2f}x')
-                    self.last_action_time['rate'] = now
-                    self.player.audio_set_channel(vlc.AudioOutputChannel.right)
-            
-            self._update_state_label()
-        elif "No hands detected" in line:
+        
+        # Handle "no hands" first (catches "No hands detected." and "Left: No Hand | Right: No Hand")
+        if "No Hand" in line or "No hands detected" in line:
             self.label_action.config(text='Action: (no hands)')
-            
+            return
+
+        # --- 1. Parse the new line format ---
+        # Line format: "Left: {gesture} | Right: {gesture}"
+        left_gesture = "No Hand"
+        right_gesture = "No Hand"
+
+        m_left = re.search(r'Left:\s*([^|]+)', line)
+        m_right = re.search(r'Right:\s*(.+)', line) # Simpler regex for 'right'
+
+        if m_left:
+            left_gesture = m_left.group(1).strip()
+        if m_right:
+            right_gesture = m_right.group(1).strip()
+        
+        # Update the action label to show the full state
+        self.label_action.config(text=f'L: {left_gesture} | R: {right_gesture}')
+
+        # --- 2. Handle Play/Stop (Both hands) ---
+        if left_gesture == "Open Hand" and right_gesture == "Open Hand":
+            if (not self.is_playing or self.is_paused):
+                # We need to make sure a file is loaded first!
+                if not self.current_file:
+                    default = find_default_mp3()
+                    if default:
+                        self.current_file = str(default)
+                        media = self.instance.media_new(self.current_file)
+                        self.player.set_media(media)
+                        self.label_file.config(text=f'File: {os.path.basename(self.current_file)}')
+                    else:
+                        messagebox.showinfo('No MP3', 'No MP3 chosen and none found in project folder.')
+                        return # Exit handle_line
+
+                # Now we know a file is loaded, so just play.
+                self.player.play() # This resumes if paused, or starts if stopped.
+                self.is_playing = True
+                self.is_paused = False
+                print('Played/Resumed (Both Open)')
+
+        elif left_gesture == "Closed Fist" and right_gesture == "Closed Fist":
+            if self.is_playing:
+                self.stop_manual() # Use existing stop function
+                print('Stopped (Both Fists)')
+
+        # --- 3. Handle Left Hand (Volume) ---
+        # This is checked *independently* of play/stop
+        new_vol = self.volume
+        if left_gesture == "One Finger":
+            new_vol = 25
+        elif left_gesture == "Two Fingers":
+            new_vol = 50
+        elif left_gesture == "Three Fingers":
+            new_vol = 75
+        elif left_gesture == "Four Fingers":
+            new_vol = 100
+        
+        if new_vol != self.volume:
+            self.volume = new_vol
+            self.player.audio_set_volume(self.volume)
+            print(f'Volume set to -> {self.volume}')
+
+        # --- 4. Handle Right Hand (Rate) ---
+        # This is also checked *independently*
+        new_rate = self.playback_rate
+        if right_gesture == "One Finger":
+            new_rate = 0.5
+        elif right_gesture == "Two Fingers":
+            new_rate = 0.75
+        elif right_gesture == "Three Fingers":
+            new_rate = 1.0
+        elif right_gesture == "Four Fingers":
+            new_rate = 1.5
+
+        if new_rate != self.playback_rate:
+            self.playback_rate = new_rate
+            self.player.set_rate(self.playback_rate)
+            print(f'Speed set to -> {self.playback_rate:.2f}x')
+        
+        # --- 5. Update GUI ---
+        self._update_state_label()
 
 
     def _update_state_label(self):
